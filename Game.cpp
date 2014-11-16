@@ -1,5 +1,3 @@
-#include <random>
-#include <chrono>
 #include "Game.h"
 
 Game::Game(int maxSearchDepth, int boardHeight, int boardWidth, double maxSearchTime, bool blackIsHuman, bool whiteIsHuman, bool printAIInformation) : board(new Board(boardHeight, boardWidth)), blackPlayer(new Player(blackIsHuman, true)), whitePlayer(new Player(whiteIsHuman, false)), maxSearchDepth(maxSearchDepth), numberOfPliesMade(0), maxSearchTime(maxSearchTime), printAIInformation(printAIInformation) {}
@@ -48,31 +46,34 @@ bool Game::makeHumanPly(bool isBlack) {
 	this->board->printBoard();
 	this->board->clearHashTable();
 	this->numberOfPliesMade++;
+	this->board->updateSearchRectangle(position);
 	return AI::gameWon(this->board, isBlack);
 }
 
 bool Game::makeAIPly(bool isBlack) {
-	Ply ply;
+	Position position;
 	if(this->numberOfPliesMade > 0) {
-		ply = AI::computeScore(this->board, this->maxSearchDepth, this->maxSearchTime, isBlack, this->printAIInformation);
+		position = AI::computeScore(this->board, this->maxSearchDepth, this->maxSearchTime, isBlack, this->printAIInformation);
 	} else {
-		ply = this->findStartingAIPly();
+		position = this->findStartingAIPly();
 	}
-	std::cout << "The ply chosen is (y, x) = (" << static_cast<int>(ply.position.y) << ", " << static_cast<int>(ply.position.x) << ")." << std::endl;
+	std::cout << "The ply chosen is (y, x) = (" << static_cast<int>(position.y) << ", " << static_cast<int>(position.x) << ")." << std::endl;
 	if(isBlack) {
-		this->board->setBlackAtPosition(ply.position);
+		this->board->setBlackAtPosition(position);
 	} else {
-		this->board->setWhiteAtPosition(ply.position);
+		this->board->setWhiteAtPosition(position);
 	}
-	this->board->updateInteresting(ply.position);	
+	this->board->updateInteresting(position);	
 	this->board->printBoard();
 	this->board->clearHashTable();
 	this->numberOfPliesMade++;
+	this->board->updateSearchRectangle(position);
 	return AI::gameWon(this->board, isBlack);
 }
 
 // If an AI player makes the first ply, let it put it somewhere in the middle of the board.
-Ply Game::findStartingAIPly() {
+Position Game::findStartingAIPly() {
+	return Position(9, 9);
 	int8_t minY;
 	int8_t maxY;
 	int8_t minX;
@@ -97,7 +98,7 @@ Ply Game::findStartingAIPly() {
 	std::uniform_int_distribution<int8_t> xDistribution(minY, maxY);
 	int8_t y = yDistribution(generator);
 	int8_t x = xDistribution(generator);
-	return Ply(Position(y, x), 0);
+	return Position(y, x);
 }
 
 bool Game::boardIsFull() {
