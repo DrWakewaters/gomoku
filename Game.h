@@ -1,10 +1,12 @@
 #ifndef GAME_H
 #define GAME_H
 
+#include <chrono>
 #include <iostream>
+#include <random>
 #include <vector>
-#include "Player.h"
 #include "AI.h"
+#include "Player.h"
 
 class Game {
 public:
@@ -12,14 +14,14 @@ public:
 	~Game();
 	bool makeBlackPly();
 	bool makeWhitePly();
-	Ply findStartingAIPly();
+	Position findStartingAIPly();
 	bool boardIsFull();
 	int getNumberOfPliesMade();
 	void printBoard();
+	Board *board;
 private:
 	bool makeHumanPly(bool isBlack);
 	bool makeAIPly(bool isBlack);
-	Board *board;
 	Player *blackPlayer;
 	Player *whitePlayer;
 	int8_t maxSearchDepth;

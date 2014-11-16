@@ -1,8 +1,7 @@
-#include <random>
-#include <chrono>
+#include "AI.h"
 #include "Board.h"
 
-Board::Board(int8_t boardHeight, int8_t boardWidth) : boardHeight(boardHeight), boardWidth(boardWidth), black(boardHeight, 0), white(boardHeight, 0), empty(boardHeight, (1<<boardWidth)-1),
+Board::Board(int8_t boardHeight, int8_t boardWidth) : boardHeight(boardHeight), boardWidth(boardWidth), searchRectangle(), black(boardHeight, 0), white(boardHeight, 0), empty(boardHeight, (1<<boardWidth)-1),
 interesting(boardHeight, 0), hashTable(1 << 21), blackStoneHashValue(2*boardWidth*boardHeight), whiteStoneHashValue(2*boardWidth*boardHeight), hashValue(0) {
 	//unsigned int seed = static_cast<unsigned int>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 	unsigned int seed = 0; // No need for true randomness.
@@ -90,6 +89,7 @@ bool Board::interestingAtPosition(Position position) {
 void Board::setBlackAtPosition(Position position) {
 	if(this->isOutsideBoard(position)) {
 		std::cout << "Trying to set black at (" << static_cast<int>(position.y) << ", "  << static_cast<int>(position.x) << ") but it is outside the board." << std::endl;
+		this->printBoard();
 		exit(-1);
 	}
 	if(!(this->emptyAtPosition(position))) {
@@ -97,17 +97,19 @@ void Board::setBlackAtPosition(Position position) {
 		std::cout << "Contains black: " << this->blackAtPosition(position) << ".";
 		std::cout << "Contains white: " << this->whiteAtPosition(position) << ".";
 		std::cout << "Contains empty: " << this->emptyAtPosition(position) << ".";
+		this->printBoard();
 		exit(-1);
 	}
 	this->black.at(position.y) |= (1 << position.x);
-	this->white.at(position.y) &= ~(1 << position.x);
 	this->empty.at(position.y) &= ~(1 << position.x);
 	this->hashValue ^= this->blackStoneHashValue.at(this->boardWidth*position.y+position.x);
+	this->updateSearchRectangle(position);
 }
 
 void Board::setWhiteAtPosition(Position position) {
-	if(this->isOutsideBoard(position) || !(this->emptyAtPosition(position))) {
+	if(this->isOutsideBoard(position)) {
 		std::cout << "Trying to set white at (" << static_cast<int>(position.y) << ", "  << static_cast<int>(position.x) << ") but it is outside the board." << std::endl;
+		this->printBoard();
 		exit(-1);
 	}
 	if(!(this->emptyAtPosition(position))) {
@@ -115,17 +117,19 @@ void Board::setWhiteAtPosition(Position position) {
 		std::cout << "Contains black: " << this->blackAtPosition(position) << ".";
 		std::cout << "Contains white: " << this->whiteAtPosition(position) << ".";
 		std::cout << "Contains empty: " << this->emptyAtPosition(position) << ".";
+		this->printBoard();
 		exit(-1);
 	}
 	this->white.at(position.y) |= (1 << position.x);
 	this->empty.at(position.y) &= ~(1 << position.x);
-	this->black.at(position.y) &= ~(1 << position.x);
 	this->hashValue ^= this->whiteStoneHashValue.at(this->boardWidth*position.y+position.x);
+	this->updateSearchRectangle(position);
 }
 
 void Board::setEmptyAtPosition(Position position) {
 	if(this->isOutsideBoard(position)) {
 		std::cout << "Trying to set empty at (" << static_cast<int>(position.y) << ", "  << static_cast<int>(position.x) << ") but it is outside the board." << std::endl;
+		this->printBoard();
 		exit(-1);
 	}
 	if(this->blackAtPosition(position)) {
@@ -175,15 +179,15 @@ int Board::getBoardWidth() {
 }
 
 // Really dirty. Find the principal variation by recursively performing the best ply for the current board position (as stored in the hash table).
-int Board::principalVariation(bool isBlack, int8_t maximalPrincipalVariationLength) {
-	int8_t principalVariationLength = 0;
+std::vector<Position> Board::principalVariation(bool isBlack, int8_t maximalPrincipalVariationLength, int16_t *score, bool *gameWon) {
 	uint64_t hashBackup = this->hashValue;
 	std::vector<int> blackBackup(black);
 	std::vector<int> whiteBackup(white);
 	std::vector<int> emptyBackup(empty);
 	std::vector<int> interestingBackup(interesting);
-	std::cout << "The principal variation is";
-	for(int8_t depth = 0; depth < maximalPrincipalVariationLength; depth++) {
+	std::vector<Position> principalVariation = std::vector<Position>(maximalPrincipalVariationLength+1);
+	int8_t depth;
+	for(depth = 0; depth <= maximalPrincipalVariationLength; depth++) {
 		int hashIndexPrimary = static_cast<int>((this->hashValue)%(this->hashTable.size()));
 		int hashIndexSecondary = -1;
 		uint16_t hashValue[3] = {static_cast<uint16_t>(this->hashValue >> 48), static_cast<uint16_t>((this->hashValue >> 32)%(1 << 16)), static_cast<uint16_t>((this->hashValue >> 16)%(1 << 16))};
@@ -193,26 +197,53 @@ int Board::principalVariation(bool isBlack, int8_t maximalPrincipalVariationLeng
 				break;
 			}
 		}
+		if(hashIndexSecondary == -1) {
+			break;
+		}
+		*score = this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).score;
+		if(AI::gameWon(this, this->white) || AI::gameWon(this, this->black)) {
+			*gameWon = true;
+			break;
+		}
 		// We might not have a principal variation all the way down to principalVariationLength if either side is about to win.
 		if(this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPositionLevel < maximalPrincipalVariationLength) {
 			break;
 		}
-		std::cout << " (" << static_cast<int>(this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.y) << ", " << static_cast<int>(this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.x) << ")";
-		Position position = Position{this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.y, this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.x};
+		principalVariation.at(depth) = Position{this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.y, this->hashTable.at(hashIndexPrimary).at(hashIndexSecondary).bestNextPosition.x};
 		if(isBlack) {
-			this->setBlackAtPosition(position);
+			this->setBlackAtPosition(principalVariation.at(depth));
 		} else {
-			this->setWhiteAtPosition(position);
+			this->setWhiteAtPosition(principalVariation.at(depth));
 		}
-		this->updateInteresting(position);	
+		this->updateInteresting(principalVariation.at(depth));	
 		isBlack = !isBlack;
-		principalVariationLength++;
 	}
-	std::cout << "." << std::endl;
 	this->black = blackBackup;
 	this->white = whiteBackup;
 	this->empty = emptyBackup;
 	this->interesting = interestingBackup;
 	this->hashValue = hashBackup;
-	return principalVariationLength;
+	principalVariation.resize(depth);
+	return principalVariation;
+}
+
+void Board::updateSearchRectangle(Position position) {
+	this->searchRectangle.upperLeft.y = Board::max(0, Board::min(this->searchRectangle.upperLeft.y, position.y-1));
+	this->searchRectangle.upperLeft.x = Board::max(0, Board::min(this->searchRectangle.upperLeft.x, position.x-1));
+	this->searchRectangle.lowerRight.y = Board::min(this->boardHeight-1, Board::max(this->searchRectangle.lowerRight.y, position.y+1));
+	this->searchRectangle.lowerRight.x = Board::min(this->boardWidth-1, Board::max(this->searchRectangle.lowerRight.x, position.x+1));
+}
+
+int8_t Board::min(int8_t left, int8_t right) {
+	if(left < right) {
+		return left;
+	}
+	return right;
+}
+
+int8_t Board::max(int8_t left, int8_t right) {
+	if(left < right) {
+		return right;
+	}
+	return left;
 }
